@@ -12,7 +12,7 @@
       position: fixed;
       left: 14px;
       top: 12px;
-      z-index: 50;
+      z-index: 60;
       display:flex;
       gap:8px;
       align-items:center;
@@ -22,10 +22,18 @@
       box-shadow:0 6px 18px rgba(0,0,0,0.12); font-weight:600;
     }
     .ui .label { color:#222; background:transparent; padding:0 8px; font-size:13px; font-weight:600; margin-right:6px; }
-    .credits {
-      position: fixed; right:14px; bottom:14px; z-index:40; font-size:12px; color:#444;
+    .credits { position: fixed; right:14px; bottom:14px; z-index:40; font-size:12px; color:#444;
       background: rgba(255,255,255,0.85); padding:6px 10px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.06);
     }
+    /* loading */
+    .loading {
+      position: fixed; left:50%; top:50%; transform:translate(-50%,-50%); z-index:80;
+      background: rgba(255,255,255,0.95); padding:14px 18px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.12);
+      display:flex; gap:10px; align-items:center; font-weight:600;
+    }
+    .dot { width:10px; height:10px; background:#222; border-radius:50%; animation:blink 1s infinite; }
+    .dot:nth-child(2){ animation-delay:.15s } .dot:nth-child(3){ animation-delay:.3s }
+    @keyframes blink { 0% { opacity:.2 } 50% { opacity:1 } 100% { opacity:.2 } }
   </style>
 
   <!-- Babylon JS (Core + Loaders + GUI) -->
@@ -44,12 +52,19 @@
 
   <canvas id="renderCanvas"></canvas>
 
-  <div class="credits">Rotate: drag • Zoom: wheel / pinch • Drag the model to position</div>
+  <div class="loading" id="loadingBox"><div class="dot"></div><div class="dot"></div><div class="dot"></div><div>Loading 3D model...</div></div>
+  <div class="credits">Rotate: drag • Zoom: wheel / pinch</div>
 
 <script>
 (async function(){
-  const MODEL_URL = "https://celestialstones7-star.github.io/Glb-earings/for-website.glb";
+  // ---- EDIT THIS if your filename/path differs ----
+  const MODEL_FILENAME = "for-website.glb"; // must match repo exact filename (lowercase, no spaces)
+  const MODEL_URL = `${location.origin}${location.pathname.replace(/index\.html.*$/,'')}${MODEL_FILENAME}`;
+  // If you prefer the absolute GitHub Pages URL, uncomment and use:
+  // const MODEL_URL = "https://celestialstones7-star.github.io/Glb-earings/for-website.glb";
+
   const canvas = document.getElementById("renderCanvas");
+  const loadingBox = document.getElementById("loadingBox");
   const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
 
   const createScene = async () => {
@@ -57,131 +72,156 @@
     scene.clearColor = new BABYLON.Color4(0.945,0.945,0.945,1);
 
     // Camera
-    const camera = new BABYLON.ArcRotateCamera("cam", -Math.PI/2, Math.PI/2.6, 1.2, BABYLON.Vector3.Zero(), scene);
+    const camera = new BABYLON.ArcRotateCamera("cam", -Math.PI/2, Math.PI/2.6, 2, BABYLON.Vector3.Zero(), scene);
     camera.attachControl(canvas, true);
-    camera.lowerRadiusLimit = 0.25;
-    camera.upperRadiusLimit = 6;
     camera.wheelDeltaPercentage = 0.01;
 
-    // Light + Environment
-    // Use a high-quality environment texture hosted by Babylon (prefiltered)
-    const envTexUrl = "https://playground.babylonjs.com/textures/environment.env"; // prefiltered env file (works well)
-    const envTexture = await BABYLON.CubeTexture.CreateFromPrefilteredDataAsync(envTexUrl, scene);
-    scene.environmentTexture = envTexture;
-    scene.environmentIntensity = 1.1;
+    // Lights + environment (prefiltered .env for good reflections)
+    const envUrl = "https://playground.babylonjs.com/textures/environment.env";
+    try {
+      const envTex = await BABYLON.CubeTexture.CreateFromPrefilteredDataAsync(envUrl, scene);
+      scene.environmentTexture = envTex;
+      scene.environmentIntensity = 1.05;
+    } catch (e) {
+      console.warn("Env load failed:", e);
+    }
 
     const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0,1,0), scene);
     hemi.intensity = 0.6;
 
-    // Ground reflection (invisible ground to collect reflections)
-    const pbrGen = new BABYLON.PBRMaterial("groundPBR", scene);
-    pbrGen.disableLighting = true;
+    // Root container we will attach model meshes to
+    const root = new BABYLON.TransformNode("root", scene);
 
-    // Load model
-    const result = await BABYLON.SceneLoader.AppendAsync("", MODEL_URL, scene, undefined, ".glb");
-    // Normalize/center model (makes camera controls consistent)
-    const rootMesh = scene.meshes.filter(m => m.parent === null && m.name !== "__root__")[0] || scene.meshes[0];
-    rootMesh.position = BABYLON.Vector3.Zero();
-    // Compute bounding info
-    const bBox = rootMesh.getBoundingInfo().boundingBox;
-    const size = bBox.maximum.subtract(bBox.minimum);
-    const maxDim = Math.max(size.x, size.y, size.z);
-    const scaleFactor = 1.0 / maxDim;
-    rootMesh.scaling = new BABYLON.Vector3(scaleFactor, scaleFactor, scaleFactor);
+    // Robust model import: supports nested roots & many meshes
+    try {
+      // Use ImportMesh so we get loaded meshes array
+      BABYLON.SceneLoader.ImportMesh("", MODEL_URL.replace(/.*:\/\/[^\/]+/,''), MODEL_URL, scene, function(meshes) {
+        // If import returned nothing, throw
+        if (!meshes || meshes.length === 0) {
+          console.error("No meshes loaded from GLB.");
+          loadingBox.innerText = "Model failed to load (no meshes). Check filename and path.";
+          return;
+        }
 
-    // Re-center
-    const center = bBox.center.scale(scaleFactor);
-    rootMesh.position = center.scale(-1);
+        // Attach any top-level mesh to our root node for easy centering/scaling
+        meshes.forEach(m => {
+          try { m.parent = root; } catch(e){}
+        });
 
-    // Adjust camera radius to fit model
-    const optimalRadius = Math.max(size.x, size.y, size.z) * 1.6;
-    camera.target = BABYLON.Vector3.Zero();
-    camera.radius = optimalRadius * 2.0;
-    camera.lowerRadiusLimit = optimalRadius * 0.5;
-    camera.upperRadiusLimit = optimalRadius * 8.0;
+        // Compute bounding info across all children
+        const worldMin = new BABYLON.Vector3(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
+        const worldMax = new BABYLON.Vector3(Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY);
 
-    // Auto-rotate
+        root.getChildMeshes(false, m => true).forEach(mesh => {
+          mesh.computeWorldMatrix(true);
+          const bi = mesh.getBoundingInfo();
+          const mins = bi.boundingBox.minimumWorld;
+          const maxs = bi.boundingBox.maximumWorld;
+          worldMin.minimizeInPlace(mins);
+          worldMax.maximizeInPlace(maxs);
+        });
+
+        // If bounds invalid, fallback to first mesh bounding box
+        if (!isFinite(worldMin.x)) {
+          const first = meshes[0].getBoundingInfo();
+          worldMin.copyFrom(first.boundingBox.minimumWorld);
+          worldMax.copyFrom(first.boundingBox.maximumWorld);
+        }
+
+        const sizeVec = worldMax.subtract(worldMin);
+        const maxDim = Math.max(sizeVec.x, sizeVec.y, sizeVec.z);
+        const scaleFactor = maxDim > 0 ? (1.0 / maxDim) : 1.0;
+        root.scaling = new BABYLON.Vector3(scaleFactor, scaleFactor, scaleFactor);
+
+        // recentre
+        const center = worldMax.add(worldMin).scale(0.5).scale(scaleFactor);
+        root.position = center.scale(-1);
+
+        // camera fit
+        const desiredRadius = Math.max(sizeVec.x, sizeVec.y, sizeVec.z) * 1.6;
+        camera.target = BABYLON.Vector3.Zero();
+        camera.radius = (desiredRadius > 0) ? desiredRadius * 2.0 : 2.0;
+        camera.lowerRadiusLimit = (desiredRadius > 0) ? desiredRadius * 0.5 : 0.5;
+        camera.upperRadiusLimit = (desiredRadius > 0) ? desiredRadius * 8.0 : 20;
+
+        // collect pbr materials
+        const pbrMaterials = [];
+        root.getChildMeshes(false, m=>true).forEach(mesh => {
+          const mat = mesh.material;
+          if (mat && (mat.isPBRMaterial || mat.albedoColor !== undefined)) pbrMaterials.push(mat);
+        });
+
+        // fallback to global materials if none found
+        if (pbrMaterials.length === 0) {
+          scene.materials.forEach(mat => { if (mat && mat.albedoColor !== undefined) pbrMaterials.push(mat); });
+        }
+
+        // Material preset function
+        function applyPreset(name) {
+          pbrMaterials.forEach(mat => {
+            if (!mat) return;
+            try {
+              if (name === "gold") {
+                mat.metallic = 1.0; mat.roughness = 0.18;
+                if (mat.albedoColor) mat.albedoColor = new BABYLON.Color3(0.96,0.79,0.36);
+              } else if (name === "white") {
+                mat.metallic = 1.0; mat.roughness = 0.18;
+                if (mat.albedoColor) mat.albedoColor = new BABYLON.Color3(0.92,0.92,0.92);
+              } else if (name === "rose") {
+                mat.metallic = 1.0; mat.roughness = 0.18;
+                if (mat.albedoColor) mat.albedoColor = new BABYLON.Color3(0.89,0.56,0.5);
+              }
+              // make stones sparkly if they have transparency/transmission
+              if (mat.transparencyMode !== undefined || mat.transparency !== undefined) {
+                mat.roughness = Math.min(mat.roughness || 0.05, 0.12);
+                mat.metallic = Math.min(mat.metallic || 0, 0.05);
+              }
+            } catch(e) { /* ignore per-material errors */ }
+          });
+        }
+
+        // Attach UI
+        document.getElementById("goldBtn").onclick = () => applyPreset("gold");
+        document.getElementById("whiteBtn").onclick = () => applyPreset("white");
+        document.getElementById("roseBtn").onclick = () => applyPreset("rose");
+        document.getElementById("resetCam").onclick = () => {
+          camera.setPosition(new BABYLON.Vector3(0, camera.radius*0.9, camera.radius*0.9));
+          camera.target = BABYLON.Vector3.Zero();
+        };
+
+        applyPreset("gold");
+
+        // Done loading
+        loadingBox.style.display = "none";
+
+      }, null, function(progressEvent) {
+        // progress callback - optional
+        // console.log("progress", progressEvent);
+      }, function(err) {
+        console.error("Model load error:", err);
+        loadingBox.innerText = "Model failed to load. Check filename/path & console.";
+      });
+    } catch (importErr) {
+      console.error("Import error:", importErr);
+      loadingBox.innerText = "Model import error. See console.";
+    }
+
+    // subtle auto rotate when idle
     scene.registerBeforeRender(() => {
-      // subtle auto-rotate (only if user not interacting)
-      if (!camera._isPointerDown) {
-        rootMesh.rotation.y += 0.002; 
-      }
+      // find root and rotate slowly if user not interacting
+      const rotRoot = scene.getTransformNodeByName("root");
+      if (rotRoot && !camera._isPointerDown) rotRoot.rotation = rotRoot.rotation.add(new BABYLON.Vector3(0, 0.002, 0));
     });
-
-    // Collect PBR materials for quick tweaking
-    const pbrMaterials = [];
-    scene.meshes.forEach(mesh => {
-      if (mesh.material && mesh.material.isPBRMaterial) {
-        pbrMaterials.push(mesh.material);
-      } else if (mesh.material && mesh.material.getActiveTextures) {
-        // Some glb loader wraps materials, try to collect
-        const mat = mesh.material;
-        if (mat && mat.albedoColor !== undefined) {
-          pbrMaterials.push(mat);
-        }
-      }
-    });
-
-    // If none found, search deeper for PBRMetallicRoughnessMaterial (glTF)
-    if (pbrMaterials.length === 0) {
-      scene.materials.forEach(mat => {
-        if (mat && mat.albedoColor !== undefined) pbrMaterials.push(mat);
-      });
-    }
-
-    // Material presets
-    function applyPreset(name) {
-      // For each PBR material, adjust metallic & roughness and base color for gold/white/rose
-      pbrMaterials.forEach((mat, i) => {
-        if (!mat) return;
-        // basic defaults
-        if (name === "gold") {
-          mat.metallic = 1.0;
-          mat.roughness = 0.18;
-          if (mat.albedoColor) mat.albedoColor = new BABYLON.Color3(0.96,0.79,0.36); // warm gold
-          if (mat.reflectivityColor) mat.reflectivityColor = new BABYLON.Color3(0.96,0.79,0.36);
-        } else if (name === "white") {
-          mat.metallic = 1.0;
-          mat.roughness = 0.18;
-          if (mat.albedoColor) mat.albedoColor = new BABYLON.Color3(0.92,0.92,0.92); // white gold / platinum
-          if (mat.reflectivityColor) mat.reflectivityColor = new BABYLON.Color3(0.92,0.92,0.92);
-        } else if (name === "rose") {
-          mat.metallic = 1.0;
-          mat.roughness = 0.18;
-          if (mat.albedoColor) mat.albedoColor = new BABYLON.Color3(0.89,0.56,0.5); // rose tint
-          if (mat.reflectivityColor) mat.reflectivityColor = new BABYLON.Color3(0.89,0.56,0.5);
-        }
-        // Diamonds / stones: keep transmission/refraction if present
-        if (mat.transparencyMode !== undefined) {
-          // attempt to preserve stones: reduce roughness for sparkly look
-          try { mat.roughness = Math.min(mat.roughness || 0.05, 0.12); } catch(e){}
-        }
-      });
-    }
-
-    // Attach UI callbacks
-    document.getElementById("goldBtn").addEventListener("click", ()=> applyPreset("gold"));
-    document.getElementById("whiteBtn").addEventListener("click", ()=> applyPreset("white"));
-    document.getElementById("roseBtn").addEventListener("click", ()=> applyPreset("rose"));
-    document.getElementById("resetCam").addEventListener("click", () => {
-      camera.setPosition(new BABYLON.Vector3(0, optimalRadius*1.2, optimalRadius*1.2));
-      camera.target = BABYLON.Vector3.Zero();
-    });
-
-    // Initial preset
-    applyPreset("gold");
 
     return scene;
   };
 
   const scene = await createScene();
-  engine.runRenderLoop(() => {
-    if (scene) scene.render();
-  });
+  engine.runRenderLoop(() => { if (scene) scene.render(); });
+  window.addEventListener("resize", () => engine.resize());
 
-  window.addEventListener("resize", () => {
-    engine.resize();
-  });
+  // debug: log the resolved model URL used
+  console.log("Attempting to load GLB from:", MODEL_URL);
 
 })();
 </script>
