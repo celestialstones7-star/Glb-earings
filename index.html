@@ -2,45 +2,78 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Earring 3D Viewer — Celestial Stones</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>3D Viewer - Celestial Stones</title>
 
-  <!-- Google model-viewer (simple, mobile AR capable) -->
+  <!-- Google Model Viewer -->
   <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
 
   <style>
-    html,body { height:100%; margin:0; background:#f2f2f2; font-family:Inter, sans-serif; }
-    .viewer-wrap { width:100%; height:100vh; display:flex; align-items:center; justify-content:center; }
-    model-viewer { width:100%; max-width:1400px; height:80vh; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); background:transparent; }
-    .controls { position:fixed; left:18px; top:18px; z-index:20; background:rgba(0,0,0,.6); color:#fff; padding:8px 10px; border-radius:8px; font-size:13px; }
-    a.small { color:#9ee; text-decoration:none; margin-left:8px; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #f2f2f2;
+      font-family: Inter, sans-serif;
+    }
+
+    .viewer-wrap {
+      width: 100%;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    model-viewer {
+      width: 100%;
+      max-width: 1400px;
+      height: 90vh;
+      background: transparent;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+    }
+
+    .controls {
+      position: fixed;
+      top: 15px;
+      left: 15px;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      z-index: 20;
+    }
+
+    .controls a {
+      color: #9ee;
+      text-decoration: none;
+      margin-left: 8px;
+    }
   </style>
 </head>
+
 <body>
-  <div class="controls">Use mouse / touch to rotate • Pinch to zoom • <a class="small" href="#" onclick="document.querySelector('model-viewer').enterFullscreen();return false;">Full screen</a></div>
+
+  <div class="controls">
+    Rotate with mouse • Pinch to zoom • 
+    <a href="#" onclick="document.querySelector('model-viewer').enterFullscreen(); return false;">Fullscreen</a>
+  </div>
 
   <div class="viewer-wrap">
-    <!-- Change src to match exact filename -->
-    <model-viewer id="m" src="for-website.glb"
-                  alt="Earring 3D model"
+    <model-viewer src="for-website.glb"
+                  alt="Interactive 3D Model"
                   camera-controls
                   auto-rotate
-                  exposure="1"
-                  shadow-intensity="0.8"
-                  environment-image="neutral"
+                  auto-rotate-delay="1500"
+                  rotation-per-second="30deg"
+                  exposure="1.1"
+                  shadow-intensity="1"
                   ar
                   ar-modes="webxr scene-viewer quick-look"
                   ios-src="for-website.glb">
     </model-viewer>
   </div>
 
-  <script>
-    // Small tweak: ensure correct aspect and a nicer initial camera if needed
-    const mv = document.querySelector('model-viewer');
-    mv.addEventListener('load', () => {
-      // optional: set helpful initial camera position (uncomment and tweak if needed)
-      // mv.cameraOrbit = "0deg 75deg 1.8m";
-    });
-  </script>
 </body>
 </html>
