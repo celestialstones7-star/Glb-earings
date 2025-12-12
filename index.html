@@ -2,78 +2,188 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>3D Viewer - Celestial Stones</title>
-
-  <!-- Google Model Viewer -->
-  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Babylon 3D Viewer — Celestial Stones</title>
 
   <style>
-    html, body {
-      height: 100%;
-      margin: 0;
-      background: #f2f2f2;
-      font-family: Inter, sans-serif;
-    }
-
-    .viewer-wrap {
-      width: 100%;
-      height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    model-viewer {
-      width: 100%;
-      max-width: 1400px;
-      height: 90vh;
-      background: transparent;
-      border-radius: 12px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.12);
-    }
-
-    .controls {
+    html,body { width:100%; height:100%; margin:0; padding:0; background:#efefef; font-family:Inter,Arial,Helvetica,sans-serif; }
+    #renderCanvas { width:100%; height:100vh; display:block; }
+    .ui {
       position: fixed;
-      top: 15px;
-      left: 15px;
-      background: rgba(0,0,0,0.6);
-      color: white;
-      padding: 8px 12px;
-      border-radius: 8px;
-      font-size: 13px;
-      z-index: 20;
+      left: 14px;
+      top: 12px;
+      z-index: 50;
+      display:flex;
+      gap:8px;
+      align-items:center;
     }
-
-    .controls a {
-      color: #9ee;
-      text-decoration: none;
-      margin-left: 8px;
+    .ui button {
+      background:#222; color:#fff; border:0; padding:8px 12px; border-radius:8px; cursor:pointer;
+      box-shadow:0 6px 18px rgba(0,0,0,0.12); font-weight:600;
+    }
+    .ui .label { color:#222; background:transparent; padding:0 8px; font-size:13px; font-weight:600; margin-right:6px; }
+    .credits {
+      position: fixed; right:14px; bottom:14px; z-index:40; font-size:12px; color:#444;
+      background: rgba(255,255,255,0.85); padding:6px 10px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.06);
     }
   </style>
+
+  <!-- Babylon JS (Core + Loaders + GUI) -->
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/loaders/babylon.glTF2FileLoader.js"></script>
+  <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
 </head>
-
 <body>
-
-  <div class="controls">
-    Rotate with mouse • Pinch to zoom • 
-    <a href="#" onclick="document.querySelector('model-viewer').enterFullscreen(); return false;">Fullscreen</a>
+  <div class="ui">
+    <span class="label">Metal</span>
+    <button id="goldBtn">Gold</button>
+    <button id="whiteBtn">White</button>
+    <button id="roseBtn">Rose</button>
+    <button id="resetCam">Reset Camera</button>
   </div>
 
-  <div class="viewer-wrap">
-    <model-viewer src="for-website.glb"
-                  alt="Interactive 3D Model"
-                  camera-controls
-                  auto-rotate
-                  auto-rotate-delay="1500"
-                  rotation-per-second="30deg"
-                  exposure="1.1"
-                  shadow-intensity="1"
-                  ar
-                  ar-modes="webxr scene-viewer quick-look"
-                  ios-src="for-website.glb">
-    </model-viewer>
-  </div>
+  <canvas id="renderCanvas"></canvas>
 
+  <div class="credits">Rotate: drag • Zoom: wheel / pinch • Drag the model to position</div>
+
+<script>
+(async function(){
+  const MODEL_URL = "https://celestialstones7-star.github.io/Glb-earings/for-website.glb";
+  const canvas = document.getElementById("renderCanvas");
+  const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+
+  const createScene = async () => {
+    const scene = new BABYLON.Scene(engine);
+    scene.clearColor = new BABYLON.Color4(0.945,0.945,0.945,1);
+
+    // Camera
+    const camera = new BABYLON.ArcRotateCamera("cam", -Math.PI/2, Math.PI/2.6, 1.2, BABYLON.Vector3.Zero(), scene);
+    camera.attachControl(canvas, true);
+    camera.lowerRadiusLimit = 0.25;
+    camera.upperRadiusLimit = 6;
+    camera.wheelDeltaPercentage = 0.01;
+
+    // Light + Environment
+    // Use a high-quality environment texture hosted by Babylon (prefiltered)
+    const envTexUrl = "https://playground.babylonjs.com/textures/environment.env"; // prefiltered env file (works well)
+    const envTexture = await BABYLON.CubeTexture.CreateFromPrefilteredDataAsync(envTexUrl, scene);
+    scene.environmentTexture = envTexture;
+    scene.environmentIntensity = 1.1;
+
+    const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0,1,0), scene);
+    hemi.intensity = 0.6;
+
+    // Ground reflection (invisible ground to collect reflections)
+    const pbrGen = new BABYLON.PBRMaterial("groundPBR", scene);
+    pbrGen.disableLighting = true;
+
+    // Load model
+    const result = await BABYLON.SceneLoader.AppendAsync("", MODEL_URL, scene, undefined, ".glb");
+    // Normalize/center model (makes camera controls consistent)
+    const rootMesh = scene.meshes.filter(m => m.parent === null && m.name !== "__root__")[0] || scene.meshes[0];
+    rootMesh.position = BABYLON.Vector3.Zero();
+    // Compute bounding info
+    const bBox = rootMesh.getBoundingInfo().boundingBox;
+    const size = bBox.maximum.subtract(bBox.minimum);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const scaleFactor = 1.0 / maxDim;
+    rootMesh.scaling = new BABYLON.Vector3(scaleFactor, scaleFactor, scaleFactor);
+
+    // Re-center
+    const center = bBox.center.scale(scaleFactor);
+    rootMesh.position = center.scale(-1);
+
+    // Adjust camera radius to fit model
+    const optimalRadius = Math.max(size.x, size.y, size.z) * 1.6;
+    camera.target = BABYLON.Vector3.Zero();
+    camera.radius = optimalRadius * 2.0;
+    camera.lowerRadiusLimit = optimalRadius * 0.5;
+    camera.upperRadiusLimit = optimalRadius * 8.0;
+
+    // Auto-rotate
+    scene.registerBeforeRender(() => {
+      // subtle auto-rotate (only if user not interacting)
+      if (!camera._isPointerDown) {
+        rootMesh.rotation.y += 0.002; 
+      }
+    });
+
+    // Collect PBR materials for quick tweaking
+    const pbrMaterials = [];
+    scene.meshes.forEach(mesh => {
+      if (mesh.material && mesh.material.isPBRMaterial) {
+        pbrMaterials.push(mesh.material);
+      } else if (mesh.material && mesh.material.getActiveTextures) {
+        // Some glb loader wraps materials, try to collect
+        const mat = mesh.material;
+        if (mat && mat.albedoColor !== undefined) {
+          pbrMaterials.push(mat);
+        }
+      }
+    });
+
+    // If none found, search deeper for PBRMetallicRoughnessMaterial (glTF)
+    if (pbrMaterials.length === 0) {
+      scene.materials.forEach(mat => {
+        if (mat && mat.albedoColor !== undefined) pbrMaterials.push(mat);
+      });
+    }
+
+    // Material presets
+    function applyPreset(name) {
+      // For each PBR material, adjust metallic & roughness and base color for gold/white/rose
+      pbrMaterials.forEach((mat, i) => {
+        if (!mat) return;
+        // basic defaults
+        if (name === "gold") {
+          mat.metallic = 1.0;
+          mat.roughness = 0.18;
+          if (mat.albedoColor) mat.albedoColor = new BABYLON.Color3(0.96,0.79,0.36); // warm gold
+          if (mat.reflectivityColor) mat.reflectivityColor = new BABYLON.Color3(0.96,0.79,0.36);
+        } else if (name === "white") {
+          mat.metallic = 1.0;
+          mat.roughness = 0.18;
+          if (mat.albedoColor) mat.albedoColor = new BABYLON.Color3(0.92,0.92,0.92); // white gold / platinum
+          if (mat.reflectivityColor) mat.reflectivityColor = new BABYLON.Color3(0.92,0.92,0.92);
+        } else if (name === "rose") {
+          mat.metallic = 1.0;
+          mat.roughness = 0.18;
+          if (mat.albedoColor) mat.albedoColor = new BABYLON.Color3(0.89,0.56,0.5); // rose tint
+          if (mat.reflectivityColor) mat.reflectivityColor = new BABYLON.Color3(0.89,0.56,0.5);
+        }
+        // Diamonds / stones: keep transmission/refraction if present
+        if (mat.transparencyMode !== undefined) {
+          // attempt to preserve stones: reduce roughness for sparkly look
+          try { mat.roughness = Math.min(mat.roughness || 0.05, 0.12); } catch(e){}
+        }
+      });
+    }
+
+    // Attach UI callbacks
+    document.getElementById("goldBtn").addEventListener("click", ()=> applyPreset("gold"));
+    document.getElementById("whiteBtn").addEventListener("click", ()=> applyPreset("white"));
+    document.getElementById("roseBtn").addEventListener("click", ()=> applyPreset("rose"));
+    document.getElementById("resetCam").addEventListener("click", () => {
+      camera.setPosition(new BABYLON.Vector3(0, optimalRadius*1.2, optimalRadius*1.2));
+      camera.target = BABYLON.Vector3.Zero();
+    });
+
+    // Initial preset
+    applyPreset("gold");
+
+    return scene;
+  };
+
+  const scene = await createScene();
+  engine.runRenderLoop(() => {
+    if (scene) scene.render();
+  });
+
+  window.addEventListener("resize", () => {
+    engine.resize();
+  });
+
+})();
+</script>
 </body>
 </html>
